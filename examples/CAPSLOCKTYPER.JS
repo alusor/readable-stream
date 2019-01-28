@@ -11,7 +11,7 @@ function MyStream () {
 inherits(MyStream, Transform);
 
 MyStream.prototype._transform = function (chunk, outputFn, callback) {
-  outputFn(Buffer.from(String(chunk).toUpperCase()));
+  outputFn(new Buffer(String(chunk).toUpperCase()));
   callback();
 };
 

@@ -1,6 +1,6 @@
 // Flags: --expose_internals
 /*<replacement>*/
-var bufferShim = require('safe-buffer').Buffer;
+var bufferShim = require('buffer-shims');
 /*</replacement>*/
 require('../common');
 var fromList = require('../../lib/_stream_readable')._fromList;

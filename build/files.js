@@ -36,17 +36,15 @@ const headRegexp = /(^module.exports = \w+;?)/m
         , '\n$1\n  Duplex = Duplex || require(\'./_stream_duplex\');\n'
       ]
 
+    , altForEachImplReplacement = require('./common-replacements').altForEachImplReplacement
+    , altForEachUseReplacement  = require('./common-replacements').altForEachUseReplacement
     , altIndexOfImplReplacement = require('./common-replacements').altIndexOfImplReplacement
     , altIndexOfUseReplacement  = require('./common-replacements').altIndexOfUseReplacement
 
     , utilReplacement = [
           /^const util = require\('util'\);/m
-        , ''
-      ]
-
-    , inherits = [
-          /^util.inherits/m
-        , 'require(\'inherits\')'
+        ,   '\n/*<replacement>*/\nconst util = require(\'core-util-is\');\n'
+          + 'util.inherits = require(\'inherits\');\n/*</replacement>*/\n'
       ]
 
     , debugLogReplacement = [
@@ -74,6 +72,16 @@ const headRegexp = /(^module.exports = \w+;?)/m
       ,   '(function (){try {\n'
         + 'Object.defineProperty\($1});\n'
         + '}catch(_){}}());\n'
+      ]
+
+    , isArrayDefine = [
+          headRegexp
+        , '$1\n\n/*<replacement>*/\nvar isArray = require(\'isarray\');\n/*</replacement>*/\n'
+      ]
+
+    , isArrayReplacement = [
+          /Array\.isArray/g
+        , 'isArray'
       ]
 
     , objectKeysDefine = require('./common-replacements').objectKeysDefine
@@ -112,125 +120,95 @@ const headRegexp = /(^module.exports = \w+;?)/m
     , 'Buffer.isBuffer($1)'
     ]
 
+    , processNextTickImport = [
+      headRegexp
+    , `$1
+
+/*<replacement>*/
+  var processNextTick = require(\'process-nextick-args\');
+/*</replacement>*/
+`
+    ]
+
+    , processNextTickReplacement = [
+      /process.nextTick\(/g
+    , 'processNextTick('
+    ]
+
     , internalUtilReplacement = [
           /^const internalUtil = require\('internal\/util'\);/m
         ,   '\n/*<replacement>*/\nconst internalUtil = {\n  deprecate: require(\'util-deprecate\')\n};\n'
           + '/*</replacement>*/\n'
+      ],
+      isNode10 = [
+        headRegexp
+      , `$1
+
+/*<replacement>*/
+  var asyncWrite = !process.browser && ['v0.10' , 'v0.9.'].indexOf(process.version.slice(0, 5)) > -1 ? setImmediate : processNextTick;
+/*</replacement>*/
+`
       ]
+    , fixSyncWrite = [
+      /if \(sync\) {\n\s+processNextTick\(afterWrite, stream, state, finished, cb\);\n\s+}/
+      , `if (sync) {
+      /*<replacement>*/
+        asyncWrite(afterWrite, stream, state, finished, cb);
+      /*</replacement>*/
+    }
+
+      `
+    ]
+  , safeBufferFix = [
+    /const Buffer = require\('buffer'\)\.Buffer;/,
+    `/*<replacement>*/
+  const Buffer = require('safe-buffer').Buffer
+/*</replacement>*/`
+  ]
   , internalDirectory = [
-    /require\('internal\/streams\/([a-zA-z]+)'\)/g,
-    'require(\'./internal/streams/$1\')'
+    /require\('internal\/streams\/BufferList'\)/,
+    'require(\'./internal/streams/BufferList\')'
   ]
   , fixInstanceCheck = [
     /if \(typeof Symbol === 'function' && Symbol\.hasInstance\) \{/,
     `if (typeof Symbol === 'function' && Symbol.hasInstance && typeof Function.prototype[Symbol.hasInstance] === 'function') {`
   ]
   , removeOnWriteBind = [
-      /onwrite\.bind\([^)]+?\)/
-    , `function(er) { onwrite(stream, er); }`
+    /onwrite\.bind\([^)]+?\)/,
+    `function(er) { onwrite(stream, er); }`
   ]
-  , addUintStuff = [
-    /(?:var|const) (?:{ )Buffer(?: }) = require\('buffer'\)(?:\.Buffer)?;/g
-    , `
-  const Buffer = require('buffer').Buffer
-  const OurUint8Array = global.Uint8Array || function () {}
-function _uint8ArrayToBuffer(chunk) {
-   return Buffer.from(chunk);
-}
-function _isUint8Array(obj) {
-  return Buffer.isBuffer(obj) || obj instanceof OurUint8Array;
-}
-  `
+  , removeCorkedFinishBind = [
+    /onCorkedFinish\.bind\([^)]+?\)/,
+    function (match) {
+      const code = this
+      var src = /^function onCorkedFinish[^{]*?\{([\s\S]+?\r?\n)\}/m.exec(code)
+      src = src[1].trim().replace(/corkReq/g, 'this').replace(/(\r?\n)/mg, '  $1')
+      return `(err) => {\n${src}\n}`
+    }
   ]
-  , addConstructors = [
-      headRegexp
-    , `$1
-
-/* <replacement> */
-function WriteReq(chunk, encoding, cb) {
-  this.chunk = chunk;
-  this.encoding = encoding;
-  this.callback = cb;
-  this.next = null;
-}
-
-// It seems a linked list but it is not
-// there will be only 2 of these for each stream
-function CorkedRequest(state) {
-  this.next = null;
-  this.entry = null;
-  this.finish = () => { onCorkedFinish(this, state) };
-}
-/* </replacement> */
-`
-  ]
-  , useWriteReq = [
-      /state\.lastBufferedRequest = \{.+?\}/g
-    , `state.lastBufferedRequest = new WriteReq(chunk, encoding, cb)`
-  ]
-  , useCorkedRequest = [
-      /var corkReq = [\s\S]+?(.+?)\.corkedRequestsFree = corkReq/g
-    , `$1.corkedRequestsFree = new CorkedRequest($1)`
-  ]
-  , fixUintStuff = [
-      /Stream\.(_isUint8Array|_uint8ArrayToBuffer)\(/g
-    , `$1(`
-  ]
-  , fixBufferCheck = [
-      /Object\.getPrototypeOf\((chunk)\) !== Buffer\.prototype/g
-    , '!Buffer.isBuffer($1)'
-  ]
-  , errorsOneLevel = [
-        /internal\/errors/
-    ,   '../errors'
-  ]
-  , errorsTwoLevel = [
-        /internal\/errors/
-    ,   '../../../errors'
-  ]
-  , warnings = [
-        /^const { emitExperimentalWarning } = require\('internal\/util'\);/m,
-        'const { emitExperimentalWarning } = require(\'../experimentalWarning\');'
-  ]
-  , numberIE11 = [
-          /Number\.isNaN\(n\)/g
-      ,   'n !== n'
-  ]
-  , integerIE11 = [
-          /Number\.isInteger\(hwm\)/g
-    ,     '(isFinite(hwm) && Math.floor(hwm) === hwm)'
-  ]
-  , noAsyncIterators1 = [
-          /Readable\.prototype\[Symbol\.asyncIterator\] = function\(\) \{/g
-      ,   'if (typeof Symbol === \'function\' ) {\nReadable.prototype[Symbol.asyncIterator] = function () {'
-  ]
-  , noAsyncIterators2 = [
-          /return createReadableStreamAsyncIterator\(this\);\n};/m
-      ,   'return createReadableStreamAsyncIterator(this);\n};\n}'
-  ]
-  , once = [
-          /const \{ once \} = require\('internal\/util'\);/
-      ,  'function once(callback) { let called = false; return function(...args) { if (called) return; called = true; callback(...args); }; }'
+  , removeOnCorkedFinish = [
+    /^function onCorkedFinish[\s\S]+?\r?\n\}/m,
+    ''
   ]
 
 module.exports['_stream_duplex.js'] = [
     requireReplacement
   , instanceofReplacement
   , utilReplacement
-  , inherits
   , stringDecoderReplacement
+  , altForEachImplReplacement
+  , altForEachUseReplacement
   , objectKeysReplacement
   , objectKeysDefine
-  , errorsOneLevel
+  , processNextTickImport
+  , processNextTickReplacement
 ]
 
 module.exports['_stream_passthrough.js'] = [
     requireReplacement
   , instanceofReplacement
   , utilReplacement
-  , inherits
   , stringDecoderReplacement
-  , errorsOneLevel
 ]
 
 module.exports['_stream_readable.js'] = [
@@ -238,34 +216,32 @@ module.exports['_stream_readable.js'] = [
   , addDuplexDec
   , requireReplacement
   , instanceofReplacement
+  , altForEachImplReplacement
+  , altForEachUseReplacement
   , altIndexOfImplReplacement
   , altIndexOfUseReplacement
+  , instanceofReplacement
   , stringDecoderReplacement
+  , isArrayReplacement
+  , isArrayDefine
   , debugLogReplacement
   , utilReplacement
-  , inherits
   , stringDecoderReplacement
   , eventEmittterReplacement
   , requireStreamReplacement
   , isBufferReplacement
+  , processNextTickImport
+  , processNextTickReplacement
   , eventEmittterListenerCountReplacement
+  , safeBufferFix
   , internalDirectory
-  , fixUintStuff
-  , addUintStuff
-  , errorsOneLevel
-  , warnings
-  , numberIE11
-  , noAsyncIterators1
-  , noAsyncIterators2
 ]
 
 module.exports['_stream_transform.js'] = [
     requireReplacement
   , instanceofReplacement
   , utilReplacement
-  , inherits
   , stringDecoderReplacement
-  , errorsOneLevel
 ]
 
 module.exports['_stream_writable.js'] = [
@@ -274,7 +250,6 @@ module.exports['_stream_writable.js'] = [
   , requireReplacement
   , instanceofReplacement
   , utilReplacement
-  , inherits
   , stringDecoderReplacement
   , debugLogReplacement
   , deprecateReplacement
@@ -284,66 +259,17 @@ module.exports['_stream_writable.js'] = [
   , [ /^var assert = require\('assert'\);$/m, '' ]
   , requireStreamReplacement
   , isBufferReplacement
+  , isNode10
+  , processNextTickImport
+  , processNextTickReplacement
   , internalUtilReplacement
+  , fixSyncWrite
+  , safeBufferFix
   , fixInstanceCheck
   , removeOnWriteBind
-  , internalDirectory
-  , fixUintStuff
-  , addUintStuff
-  , fixBufferCheck
-  , useWriteReq
-  , useCorkedRequest
-  , addConstructors
-  , errorsOneLevel
+  , removeCorkedFinishBind
+  , removeOnCorkedFinish
 ]
-
-module.exports['internal/streams/buffer_list.js'] = [
-    [
-      /inspect.custom/g,
-      'custom'
-    ],
-    [
-      /const \{ inspect \} = require\('util'\);/,
-      `
-const { inspect } = require('util')
-const custom = inspect && inspect.custom || 'inspect'
-      `
-    ]
-]
-module.exports['internal/streams/destroy.js'] = [
-    errorsTwoLevel
-]
-
-module.exports['internal/streams/state.js'] = [
-  , errorsTwoLevel
-  , integerIE11
-]
-
-module.exports['internal/streams/async_iterator.js'] = [
-  , errorsTwoLevel
-  , [
-      /internal\/streams\/end-of-stream/,
-      './end-of-stream'
-    ]
-  , [
-      /const AsyncIteratorPrototype = Object\.getPrototypeOf\(\n.*Object\.getPrototypeOf\(async function\* \(\) \{\}\).prototype\);/m,
-      'const AsyncIteratorPrototype = Object\.getPrototypeOf(function () {})'
-    ]
-  , [
-      /  return\(\)/,
-      '[Symbol.asyncIterator]() { return this },\n  return\(\)'
-    ]
-]
-
-module.exports['internal/streams/end-of-stream.js'] = [
-  , errorsTwoLevel
-]
-
-module.exports['internal/streams/pipeline.js'] = [
-    once
-  , errorsTwoLevel
-  , [
-      /require\('internal\/streams\/end-of-stream'\)/,
-      'require(\'.\/end-of-stream\')'
-    ]
+module.exports['internal/streams/BufferList.js'] = [
+    safeBufferFix
 ]

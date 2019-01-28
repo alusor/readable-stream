@@ -10,25 +10,6 @@ const altForEachImplReplacement = require('./common-replacements').altForEachImp
     require('./common-replacements').bufferShimFix
     , bufferStaticMethods =
     require('./common-replacements').bufferStaticMethods
-    , specialForEachReplacment =
-    require('./common-replacements').specialForEachReplacment
-    , deepStrictEqual = [
-        /util\.isDeepStrictEqual/,
-        'require(\'deep-strict-equal\')'
-      ]
-    , tapOk = [
-        /console\.log\('ok'\);/g,
-        'require(\'tap\').pass();'
-      ]
-    , catchES7 = [
-        /} catch {/,
-        '} catch(_e) {'
-      ]
-    , catchES7OpenClose = [
-        /} catch {}/,
-        '} catch(_e) {}'
-      ]
-
 
 module.exports.all = [
     [
@@ -63,7 +44,7 @@ module.exports.all = [
 
 module.exports['test-stream2-basic.js'] = [
     altForEachImplReplacement
-  , specialForEachReplacment
+  , altForEachUseReplacement
 ]
 
 module.exports['test-stream2-objects.js'] = [
@@ -90,35 +71,11 @@ module.exports['test-stream-big-packet.js'] = [
   , altIndexOfUseReplacement
 ]
 
-module.exports['test-stream-end-paused.js'] = [
-    [
-      /console.log\('ok'\);/,
-      ''
-    ]
-]
-
 module.exports['common.js'] = [
     objectKeysDefine
   , objectKeysReplacement
   , altForEachImplReplacement
   , altForEachUseReplacement
-  , deepStrictEqual
-  , catchES7
-  , catchES7OpenClose
-  , [
-        /^(  for \(var x in global\) \{|function leakedGlobals\(\) \{)$/m
-      ,   '  /*<replacement>*/\n'
-        + '  if (typeof constructor == \'function\')\n'
-        + '    knownGlobals.push(constructor);\n'
-        + '  if (typeof DTRACE_NET_SOCKET_READ == \'function\')\n'
-        + '    knownGlobals.push(DTRACE_NET_SOCKET_READ);\n'
-        + '  if (typeof DTRACE_NET_SOCKET_WRITE == \'function\')\n'
-        + '    knownGlobals.push(DTRACE_NET_SOCKET_WRITE);\n'
-        + '  if (global.__coverage__)\n'
-        + '    knownGlobals.push(__coverage__);\n'
-        + '\'console,clearImmediate,setImmediate,core,__core-js_shared__,Promise,Map,Set,WeakMap,WeakSet,Reflect,System,asap,Observable,regeneratorRuntime,_babelPolyfill\'.split(\',\').filter(function (item) {  return typeof global[item] !== undefined}).forEach(function (item) {knownGlobals.push(global[item])})'
-        + '  /*</replacement>*/\n\n$1'
-    ]
 
   , [
         /(exports.mustCall[\s\S]*)/m
@@ -137,6 +94,41 @@ module.exports['common.js'] = [
         + '}\n'
     ]
 
+    // for streams2 on node 0.11
+    // and dtrace in 0.10
+    // and coverage in all
+  , [
+        /^(  for \(var x in global\) \{|function leakedGlobals\(\) \{)$/m
+      ,   '  /*<replacement>*/\n'
+        + '  if (typeof constructor == \'function\')\n'
+        + '    knownGlobals.push(constructor);\n'
+        + '  if (typeof DTRACE_NET_SOCKET_READ == \'function\')\n'
+        + '    knownGlobals.push(DTRACE_NET_SOCKET_READ);\n'
+        + '  if (typeof DTRACE_NET_SOCKET_WRITE == \'function\')\n'
+        + '    knownGlobals.push(DTRACE_NET_SOCKET_WRITE);\n'
+        + '  if (global.__coverage__)\n'
+        + '    knownGlobals.push(__coverage__);\n'
+        + '\'core,__core-js_shared__,Promise,Map,Set,WeakMap,WeakSet,Reflect,System,asap,Observable,regeneratorRuntime,_babelPolyfill\'.split(\',\').filter(function (item) {  return typeof global[item] !== undefined}).forEach(function (item) {knownGlobals.push(global[item])})'
+        + '  /*</replacement>*/\n\n$1'
+    ]
+
+    // for node 0.8
+  , [
+        /^/
+      ,   '/*<replacement>*/'
+        + '\nif (!global.setImmediate) {\n'
+        + '  global.setImmediate = function setImmediate(fn) {\n'
+
+        + '    return setTimeout(fn.bind.apply(fn, arguments), 4);\n'
+        + '  };\n'
+        + '}\n'
+        + 'if (!global.clearImmediate) {\n'
+        + '  global.clearImmediate = function clearImmediate(i) {\n'
+        + '  return clearTimeout(i);\n'
+        + '  };\n'
+        + '}\n'
+        + '/*</replacement>*/\n'
+    ]
   , [
         /^if \(global\.ArrayBuffer\) \{([^\}]+)\}$/m
       ,   '/*<replacement>*/if (!process.browser) {'
@@ -156,7 +148,7 @@ module.exports['common.js'] = [
     , [
       /^/,
       `/*<replacement>*/
-      require('@babel/polyfill');
+      require('babel-polyfill');
       var util = require('util');
       for (var i in util) exports[i] = util[i];
       /*</replacement>*/`
@@ -167,7 +159,7 @@ module.exports['common.js'] = [
     ],
     [
         /require\(['"]stream['"]\)/g
-      , 'require(\'../../\')'
+      , 'require(\'../\')'
     ],
     [
     /^var util = require\('util'\);/m
@@ -190,39 +182,6 @@ module.exports['common.js'] = [
 [
   /exports\.buildType/,
   '//exports.buildType'
-],
-[
-  /require\('async_hooks'\)/,
-  '/*require(\'async_hooks\')'
-],
-[
-  /\}\).enable\(\);/,
-  '}).enable();*/'
-],
-[
-  /const async_hooks = require\('async_hooks'\)/,
-  'var async_hooks = require(\'async_\' + \'hooks\')'
-],
-[
-  /(?:var|const) async_wrap = process\.binding\('async_wrap'\);\n.*(?:var|const) (?:{ )?kCheck(?: })? = async_wrap\.constants(?:\.kCheck)?;/gm,
-  '// const async_wrap = process.binding(\'async_wrap\');\n' +
-  '  // const kCheck = async_wrap.constants.kCheck;'
-],
-[
-  /async_wrap\.async_hook_fields\[kCheck\] \+= 1;/,
-  '// async_wrap.async_hook_fields[kCheck] += 1;'
-],
-[
-  /os\.cpus\(\)/,
-  'os.cpus().length === 0 ? [{ speed: 1000 }] : os.cpus()'
-],
-[
-  /const buildType = process.config.target_defaults.default_configuration;/,
-  'const buildType = \'readable-stream\';'
-],
-[
-  /const hasCrypto = Boolean\(process.versions.openssl\);/,
-  'const hasCrypto = true;'
 ]
 ]
 
@@ -288,6 +247,14 @@ module.exports['test-stream-pipe-without-listenerCount.js'] = [
   ]
 ]
 
+module.exports['test-stream2-readable-empty-buffer-no-eof.js'] = [
+  [
+    `const buf = Buffer(5).fill('x');`,
+    `const buf = new Buffer(5);
+  buf.fill('x');`
+  ]
+]
+
 module.exports['test-stream2-unpipe-drain.js'] = [
   [
     /^/,
@@ -315,60 +282,17 @@ module.exports['test-stream3-cork-uncork.js'] = module.exports['test-stream3-cor
 ]
 module.exports['test-stream2-readable-from-list.js'] = [
   [
-    /require\('internal\/streams\/buffer_list'\)/,
-    'require(\'../../lib/internal/streams/buffer_list\')'
-  ],
-  [
-    /assert\.strictEqual\(\n *util.inspect\(\[ list \], \{ compact: false \}\),\n *`\[\n *BufferList \{\n *head: \[Object\],\n *tail: \[Object\],\n *length: 4\n *\}\n *\]`\);/m,
-    'assert.strictEqual(util.inspect([ list ], { compact: false }).indexOf(\'BufferList\') > 0, true)'
+    /require\('internal\/streams\/BufferList'\)/,
+    'require(\'../../lib/internal/streams/BufferList\')'
   ]
 ]
 module.exports['test-stream-writev.js'] = [
-  tapOk,
   [
-    /console.log\(`# decode=/,
-    'require(\'tap\').test(`# decode='
+    /'latin1'/g,
+    `'binary'`
   ]
 ]
-
-module.exports['test-stream3-pause-then-read.js'] = [
-  tapOk
-]
-
-module.exports['test-stream-unshift-read-race.js'] = [
-  tapOk
-]
-
-module.exports['test-stream2-unpipe-leak.js'] = [
-  tapOk
-]
-
-module.exports['test-stream2-compatibility.js'] = [
-  tapOk
-]
-
-module.exports['test-stream-push-strings.js'] = [
-  tapOk
-]
-
-module.exports['test-stream-unshift-empty-chunk.js'] = [
-  tapOk
-]
-
-module.exports['test-stream2-pipe-error-once-listener.js'] = [
-  tapOk
-]
-
-module.exports['test-stream-push-order.js'] = [
-  tapOk
-]
-
-module.exports['test-stream2-push.js'] = [
-  tapOk
-]
-
 module.exports['test-stream2-readable-empty-buffer-no-eof.js'] = [
-  tapOk,
   [
     /case 3:\n(\s+)setImmediate\(r\.read\.bind\(r, 0\)\);/,
     'case 3:\n$1setTimeout(r.read.bind(r, 0), 50);'
@@ -376,8 +300,8 @@ module.exports['test-stream2-readable-empty-buffer-no-eof.js'] = [
 ]
 module.exports['test-stream-buffer-list.js'] = [
   [
-    /require\('internal\/streams\/buffer_list'\);/,
-    'require(\'../../lib/internal/streams/buffer_list\');'
+    /require\('internal\/streams\/BufferList'\);/,
+    'require(\'../../lib/internal/streams/BufferList\');'
   ]
 ]
 
@@ -392,63 +316,5 @@ module.exports['test-stream-unpipe-event.js'] = [
   [
     /^/,
     'if (process.version.indexOf(\'v0.8\') === 0) { process.exit(0) }\n'
-  ]
-]
-
-module.exports['test-stream-readable-flow-recursion.js'] = [
-  tapOk,
-  deepStrictEqual
-]
-
-module.exports['test-stream-readable-with-unimplemented-_read.js'] = [
-  deepStrictEqual
-]
-
-module.exports['test-stream-writable-needdrain-state.js'] = [
-  deepStrictEqual
-]
-
-module.exports['test-stream-readable-setEncoding-null.js'] = [
-  deepStrictEqual
-]
-
-module.exports['test-stream-pipeline.js'] = [
-  [
-    /require\('http2'\)/g,
-    '{ createServer() { return { listen() {} } } }'
-  ],
-  [
-    /assert\.deepStrictEqual\(err, new Error\('kaboom'\)\);/g,
-    'assert.strictEqual(err.message, \'kaboom\');'
-  ],
-  [
-    /cb\(new Error\('kaboom'\)\)/g,
-    'process.nextTick(cb, new Error(\'kaboom\'))'
-  ],
-  [
-    /const \{ promisify \} = require\('util'\);/g,
-    'const promisify = require(\'util-promisify\');'
-  ]
-]
-
-module.exports['test-stream-finished.js'] = [
-  [
-    /const \{ promisify \} = require\('util'\);/g,
-    'const promisify = require(\'util-promisify\');'
-  ]
-]
-
-module.exports['test-stream-readable-async-iterators.js'] = [
-  [
-    /assert.rejects\(/g,
-    '(function(f, e) { let success = false; f().then(function() { success = true; throw new Error(\'should not succeeed\') }).catch(function(e2) { if (success) { throw e2; } assert.strictEqual(e.message, e2.message); })})('
-  ],
-  [
-    /tests\(\).then\(common\.mustCall\(\)\)/,
-    'tests().then(common.mustCall(), common.mustNotCall(console.log))'
-  ],
-  [
-    /const AsyncIteratorPrototype = Object\.getPrototypeOf\(\n.*Object\.getPrototypeOf\(async function\* \(\) \{\}\).prototype\);/m,
-    'const AsyncIteratorPrototype = Object\.getPrototypeOf(function () {})'
   ]
 ]

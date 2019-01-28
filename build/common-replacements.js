@@ -8,12 +8,7 @@ module.exports.altForEachImplReplacement = [
 ]
 
 module.exports.altForEachUseReplacement = [
-    /(\W)([\w\.\(\),\[\] ']+)(\.forEach\()/gm
-  , '$1forEach($2, '
-]
-
-module.exports.specialForEachReplacment = [
-    /(\W)(\[(?:\d\,\s)+\d\])(\.forEach\()/gm
+    /(\W)([\w\.\(\),\[\]]+)(\.forEach\()/gm
   , '$1forEach($2, '
 ]
 

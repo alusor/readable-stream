@@ -1,99 +1,64 @@
-"use strict";
-
-function _inheritsLoose(subClass, superClass) { subClass.prototype = Object.create(superClass.prototype); subClass.prototype.constructor = subClass; subClass.__proto__ = superClass; }
-
 /*<replacement>*/
 var bufferShim = require('safe-buffer').Buffer;
 /*</replacement>*/
-
-
-var common = require('../common');
-
+require('../common');
 var assert = require('assert/');
 
 var stream = require('../../');
+var util = require('util');
 
-var MyWritable =
-/*#__PURE__*/
-function (_stream$Writable) {
-  _inheritsLoose(MyWritable, _stream$Writable);
+function MyWritable(options) {
+  stream.Writable.call(this, options);
+}
 
-  function MyWritable(opt) {
-    return _stream$Writable.call(this, opt) || this;
-  }
+util.inherits(MyWritable, stream.Writable);
 
-  var _proto = MyWritable.prototype;
+MyWritable.prototype._write = function (chunk, encoding, callback) {
+  assert.notStrictEqual(chunk, null);
+  callback();
+};
 
-  _proto._write = function _write(chunk, encoding, callback) {
-    assert.notStrictEqual(chunk, null);
-    callback();
-  };
-
-  return MyWritable;
-}(stream.Writable);
-
-common.expectsError(function () {
-  var m = new MyWritable({
-    objectMode: true
-  });
+assert.throws(function () {
+  var m = new MyWritable({ objectMode: true });
   m.write(null, function (err) {
     return assert.ok(err);
   });
-}, {
-  code: 'ERR_STREAM_NULL_VALUES',
-  type: TypeError,
-  message: 'May not write null values to stream'
+}, TypeError, 'May not write null values to stream');
+assert.doesNotThrow(function () {
+  var m = new MyWritable({ objectMode: true }).on('error', function (e) {
+    assert.ok(e);
+  });
+  m.write(null, function (err) {
+    assert.ok(err);
+  });
 });
-{
-  // Should not throw.
-  var m = new MyWritable({
-    objectMode: true
-  }).on('error', assert);
-  m.write(null, assert);
-}
-common.expectsError(function () {
+
+assert.throws(function () {
   var m = new MyWritable();
   m.write(false, function (err) {
     return assert.ok(err);
   });
-}, {
-  code: 'ERR_INVALID_ARG_TYPE',
-  type: TypeError
-});
-{
-  // Should not throw.
-  var _m = new MyWritable().on('error', assert);
-
-  _m.write(false, assert);
-}
-{
-  // Should not throw.
-  var _m2 = new MyWritable({
-    objectMode: true
+}, TypeError, 'Invalid non-string/buffer chunk');
+assert.doesNotThrow(function () {
+  var m = new MyWritable().on('error', function (e) {
+    assert.ok(e);
   });
+  m.write(false, function (err) {
+    assert.ok(err);
+  });
+});
 
-  _m2.write(false, assert.ifError);
-}
-{
-  // Should not throw.
-  var _m3 = new MyWritable({
-    objectMode: true
-  }).on('error', function (e) {
+assert.doesNotThrow(function () {
+  var m = new MyWritable({ objectMode: true });
+  m.write(false, function (err) {
+    return assert.ifError(err);
+  });
+});
+assert.doesNotThrow(function () {
+  var m = new MyWritable({ objectMode: true }).on('error', function (e) {
     assert.ifError(e || new Error('should not get here'));
   });
-
-  _m3.write(false, assert.ifError);
-}
-;
-
-require('tap').pass('sync run');
-
-var _list = process.listeners('uncaughtException');
-
-process.removeAllListeners('uncaughtException');
-
-_list.pop();
-
-_list.forEach(function (e) {
-  return process.on('uncaughtException', e);
+  m.write(false, function (err) {
+    assert.ifError(err);
+  });
 });

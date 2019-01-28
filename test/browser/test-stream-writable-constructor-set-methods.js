@@ -12,7 +12,7 @@ module.exports = function (t) {
     }
 
     var w = new Writable({ write: _write });
-    w.end(Buffer.from('blerg'));
+    w.end(new Buffer('blerg'));
 
     var _writevCalled = false;
     var dLength = 0;
@@ -24,8 +24,8 @@ module.exports = function (t) {
     var w2 = new Writable({ writev: _writev });
     w2.cork();
 
-    w2.write(Buffer.from('blerg'));
-    w2.write(Buffer.from('blerg'));
+    w2.write(new Buffer('blerg'));
+    w2.write(new Buffer('blerg'));
     w2.end();
 
     setImmediate(function() {

@@ -22,7 +22,7 @@ module.exports = function (t) {
       parsed = obj;
     });
 
-    parser.end(Buffer.from([42]));
+    parser.end(new Buffer([42]));
 
     parser.on('end', function() {
       t.equals(parsed.val, 42, 'parser ended');
@@ -37,7 +37,7 @@ module.exports = function (t) {
     t.equals(serializer._writableState.highWaterMark, 16, 'serializer 4');
 
     serializer._transform = function(obj, _, callback) {
-      callback(null, Buffer.from([obj.val]));
+      callback(null, new Buffer([obj.val]));
     };
 
     var serialized;

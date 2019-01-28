@@ -1,45 +1,29 @@
-"use strict";
-
 // Flags: --expose_internals
-
 /*<replacement>*/
 var bufferShim = require('safe-buffer').Buffer;
 /*</replacement>*/
-
-
 require('../common');
-
 var assert = require('assert/');
+var BufferList = require('../../lib/internal/streams/BufferList');
 
-var BufferList = require('../../lib/internal/streams/buffer_list'); // Test empty buffer list.
-
-
+// Test empty buffer list.
 var emptyList = new BufferList();
+
 emptyList.shift();
 assert.deepStrictEqual(emptyList, new BufferList());
+
 assert.strictEqual(emptyList.join(','), '');
+
 assert.deepStrictEqual(emptyList.concat(0), bufferShim.alloc(0));
-var buf = bufferShim.from('foo'); // Test buffer list with one element.
 
+// Test buffer list with one element.
 var list = new BufferList();
-list.push(buf);
-var copy = list.concat(3);
-assert.notStrictEqual(copy, buf);
-assert.deepStrictEqual(copy, buf);
+list.push('foo');
+
+assert.strictEqual(list.concat(1), 'foo');
+
 assert.strictEqual(list.join(','), 'foo');
+
 var shifted = list.shift();
-assert.strictEqual(shifted, buf);
+assert.strictEqual(shifted, 'foo');
 assert.deepStrictEqual(list, new BufferList());
-;
-
-require('tap').pass('sync run');
-
-var _list = process.listeners('uncaughtException');
-
-process.removeAllListeners('uncaughtException');
-
-_list.pop();
-
-_list.forEach(function (e) {
-  return process.on('uncaughtException', e);
-});
