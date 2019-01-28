@@ -1,4 +1,4 @@
-var Stream = require('stream');
+var Stream = require('stream-browserify');
 if (process.env.READABLE_STREAM === 'disable' && Stream) {
   module.exports = Stream;
   exports = module.exports = Stream.Readable;
